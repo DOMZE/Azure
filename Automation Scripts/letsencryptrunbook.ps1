@@ -21,8 +21,8 @@
     Specifies the name of the keyvault where the certificate will be stored.
 .PARAMETER StorageContainerName
     Specifies the name of the container in the blob storage where the state data is stored. Defaults to letsencrypt.
-.PARAMETER CertificatePassword
-    Specifies the certificate password once it has been issued by Let's Encrypt 
+.PARAMETER KeyVaultCertificateSecretName
+    Specifies the key vault secret name of the certificate password that will be used to export the certificate once it has been issued by Let's Encrypt 
 .PARAMETER Test
     Specifies whether to use lets encrypt staging/test facily or production facility.
 .PARAMETER VerboseOutput
@@ -44,7 +44,7 @@ Param (
     [Parameter()]
     [string] $StorageContainerName = "letsencrypt",
     [Parameter(Mandatory=$True)]
-    [string] $CertificatePassword,    
+    [string] $KeyVaultCertificateSecretName,    
     [Parameter()]
     [bool] $Test = $false,
     [Parameter()]
@@ -258,7 +258,9 @@ try {
         if ($Test) {
             $keyVaultCertificateName += "-test"
         }
-        $secureCertificatePassword = ConvertTo-SecureString $CertificatePassword -AsPlainText -Force
+
+        $keyVaultSecretValue = (Get-AzKeyVaultSecret -VaultName $KeyVaultName -Name $KeyVaultCertificateSecretName).SecretValueText
+        $certificatePassword = ConvertTo-SecureString $keyVaultSecretValue -AsPlainText -Force
 
         $storageAccountKey = (Get-AzStorageAccountKey -ResourceGroupName $ResourceGroupName -Name $StorageAccountName | Where-Object { $_.KeyName -eq "key1" } | Select-Object Value).Value
 
@@ -307,7 +309,9 @@ try {
 
         # Fetch the authorizations for that order
         Write-Output "Fetching the authorizations for the order"
+        # requires version 1.1.0 or above. Not yet released on PSGallery
         $authZ = Get-ACMEAuthorization -State $state -Order $order
+        #$authZ = Get-ACMEAuthorization -Order $order
 
         # Select a challenge to fullfill
         Write-Output "Getting the challenge"
@@ -372,7 +376,9 @@ try {
         # As soon as the url shows up we can create the PFX
         Write-Output "Exporting the certificate to the filesystem"
         $certificateExportPath = Join-Path $stateDir "$DnsName.pfx".Replace("*","wildcard")
-        Export-ACMECertificate -State $state -Order $order -CertificateKey $certKey -Path $certificateExportPath -Password $secureCertificatePassword
+        # requires version 1.1.0 or above. Not yet released on PSGallery
+        Export-ACMECertificate -State $state -Order $order -CertificateKey $certKey -Path $certificateExportPath -Password $certificatePassword
+        #Export-ACMECertificate -Order $order -CertificateKey $certKey -Path $certificateExportPath -Password $certificatePassword
 
         # Remove the TXT Record
         Write-Output "Removing the TXT record"
@@ -383,20 +389,20 @@ try {
 
         # Save the certificate into the keyvault
         Write-Output "Adding the certificate to the key vault"
-        Import-AzKeyVaultCertificate -VaultName $KeyVaultName -Name $keyVaultCertificateName -FilePath $certificateExportPath -Password $secureCertificatePassword
+        Import-AzKeyVaultCertificate -VaultName $KeyVaultName -Name $keyVaultCertificateName -FilePath $certificateExportPath -Password $certificatePassword
 
         # Remove the certificate and key
         Write-Output "Removing the certificate data from the filesystem"
         Remove-Item -Path $certificateExportPath -Force | Out-Null
         Remove-Item -Path $certificateKeyExportPath -Force | Out-Null
 
-		if ($Test -eq $False) {
-			Write-Output "Saving the state directory to storage"
-			Add-DirectoryToAzureStorage -Path $mainDir `
-										-StorageAccountName $StorageAccountName `
-										-StorageAccountKey $storageAccountKey `
-										-ContainerName $StorageContainerName
-		}
+        if ($Test -eq $False) {
+            Write-Output "Saving the state directory to storage"
+            Add-DirectoryToAzureStorage -Path $mainDir `
+                                        -StorageAccountName $StorageAccountName `
+                                        -StorageAccountKey $storageAccountKey `
+                                        -ContainerName $StorageContainerName
+        }
 }
 catch {
     $ErrorMessage = $_.Exception.Message
