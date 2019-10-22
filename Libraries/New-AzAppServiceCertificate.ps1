@@ -83,7 +83,7 @@ if (!($Vault) -and (!($VaultName) -or !($VaultResourceGroupName))) {
 if (!($AppServiceName) -and $AppService) {
     $ServerFarmId = $AppService.Id
 }
-else {
+elseif ($AppServiceName) {
     $AppService = Get-AzAppServicePlan -ResourceGroupName $ResourceGroupName -Name $AppServiceName
     $ServerFarmId = $AppService.Id
 }
@@ -107,7 +107,10 @@ Set-AzKeyVaultAccessPolicy -VaultName $VaultName -ServicePrincipalName $Microsof
 $PropertiesObject = @{
     keyVaultId = $KeyVaultId;
     keyVaultSecretName = $VaultCertificateName;
-    serverFarmId = $ServerFarmId;
+}
+
+if ($ServerFarmId) {
+   $PropertiesObject.Add("serverFarmId",$ServerFarmId)
 }
 
 New-AzResource -ResourceName $Name -Location $AppService.Location -PropertyObject $PropertiesObject -ResourceGroupName $ResourceGroupName -ResourceType Microsoft.Web/certificates -Force
