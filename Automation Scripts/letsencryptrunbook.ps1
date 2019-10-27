@@ -22,7 +22,7 @@
 .PARAMETER StorageContainerName
     Specifies the name of the container in the blob storage where the state data is stored. Defaults to letsencrypt.
 .PARAMETER KeyVaultCertificateSecretName
-    Specifies the key vault secret name of the certificate password that will be used to export the certificate once it has been issued by Let's Encrypt.
+    Specifies the key vault secret name of the certificate password that will be used to export the certificate once it has been issued by Let's Encrypt 
 .PARAMETER Test
     Specifies whether to use lets encrypt staging/test facily or production facility.
 .PARAMETER VerboseOutput
@@ -392,13 +392,13 @@ try {
         Remove-Item -Path $certificateExportPath -Force | Out-Null
         Remove-Item -Path $certificateKeyExportPath -Force | Out-Null
 
-		if ($Test -eq $False) {
-			Write-Output "Saving the state directory to storage"
-			Add-DirectoryToAzureStorage -Path $mainDir `
-										-StorageAccountName $StorageAccountName `
-										-StorageAccountKey $storageAccountKey `
-										-ContainerName $StorageContainerName
-		}
+        if ($Test -eq $False) {
+            Write-Output "Saving the state directory to storage"
+            Add-DirectoryToAzureStorage -Path $mainDir `
+                                        -StorageAccountName $StorageAccountName `
+                                        -StorageAccountKey $storageAccountKey `
+                                        -ContainerName $StorageContainerName
+        }
 }
 catch {
     $ErrorMessage = $_.Exception.Message
