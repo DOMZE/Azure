@@ -189,7 +189,9 @@ function Add-TxtRecordToDns {
                         -Name $subDomain `
                         -RecordType TXT `
                         -Ttl 10 `
-                        -DnsRecords (New-AzDnsRecordConfig -Value $TxtValue)        
+                        -DnsRecords (New-AzDnsRecordConfig -Value $TxtValue) `
+                        -Confirm:$False `
+                        -Overwrite                        
 }
 
 function Remove-TxtRecordToDns {
