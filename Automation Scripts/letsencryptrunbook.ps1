@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-#Requires -Modules @{ ModuleName="ACME-PS"; ModuleVersion="1.1.0" }
+#Requires -Modules @{ ModuleName="ACME-PS"; ModuleVersion="1.5.2" }
 
 <#
 .SYNOPSIS
@@ -8,6 +8,8 @@
     Generates a SSL certificate from Let's Encrypt and saves it into a key vault.
     The script assumes a DNZ Zone resource exists for the Dns you are trying to generate a certificate for.
     It also assumes you already have a storage account and a blob container created.
+.PARAMETER SubscriptionContextId
+    Specifies the subscription id context where the powershell cmdlets are ran against.
 .PARAMETER ResourceGroupName
     Specifies the resource group name where the storage account, key vault and dns reside.
 .PARAMETER StorageAccountName
@@ -22,7 +24,7 @@
 .PARAMETER StorageContainerName
     Specifies the name of the container in the blob storage where the state data is stored. Defaults to letsencrypt.
 .PARAMETER KeyVaultCertificateSecretName
-    Specifies the key vault secret name of the certificate password that will be used to export the certificate once it has been issued by Let's Encrypt 
+    Specifies the key vault secret name of the certificate password that will be used to export the certificate once it has been issued by Let's Encrypt
 .PARAMETER Test
     Specifies whether to use lets encrypt staging/test facily or production facility.
 .PARAMETER VerboseOutput
@@ -32,23 +34,25 @@
 [CmdletBinding()]
 Param (
     [Parameter(Mandatory=$True)]
-    [string] $ResourceGroupName,    
+    [string] $SubscriptionContextId,
+    [Parameter(Mandatory=$True)]
+    [string] $ResourceGroupName,
     [Parameter(Mandatory=$True)]
     [string] $StorageAccountName,
     [Parameter(Mandatory=$True)]
     [string[]] $ContactEmails,
     [Parameter(Mandatory=$True)]
-    [string] $DnsName, 
+    [string] $DnsName,
     [Parameter(Mandatory=$True)]
     [string] $KeyVaultName,
     [Parameter()]
     [string] $StorageContainerName = "letsencrypt",
     [Parameter(Mandatory=$True)]
-    [string] $KeyVaultCertificateSecretName,    
+    [string] $KeyVaultCertificateSecretName,
     [Parameter()]
     [bool] $Test = $false,
     [Parameter()]
-    [bool] $VerboseOutput = $false    
+    [bool] $VerboseOutput = $false
 )
 
 $ErrorActionPreference = 'stop'
@@ -63,7 +67,7 @@ function Add-DirectoryToAzureStorage {
         [Parameter(Mandatory=$true)]
         [string] $StorageAccountName,
         [Parameter(Mandatory=$true)]
-        [string] $StorageAccountKey,        
+        [string] $StorageAccountKey,
         [Parameter(Mandatory=$true)]
         [string] $ContainerName
     )
@@ -90,11 +94,11 @@ function Get-DirectoryFromAzureStorage {
         [Parameter(Mandatory=$true)]
         [string] $StorageAccountName,
         [Parameter(Mandatory=$true)]
-        [string] $StorageAccountKey,        
+        [string] $StorageAccountKey,
         [Parameter(Mandatory=$true)]
         [string] $ContainerName,
         [Parameter()]
-        [string] $BlobName        
+        [string] $BlobName
     )
 
     if ([string]::IsNullOrWhiteSpace($StorageAccountKey)) {
@@ -127,9 +131,9 @@ function New-AccountProvisioning {
         [Parameter(Mandatory=$True)]
         [string[]] $ContactEmails,
         [Parameter()]
-        [switch] $Test            
+        [switch] $Test
     )
-    
+
     if ($Test) {
         $serviceName = "LetsEncrypt-Staging"
     }
@@ -141,16 +145,16 @@ function New-AccountProvisioning {
     $state = New-ACMEState -Path $StateDir
 
     # Fetch the service directory and save it in the state
-    Get-ACMEServiceDirectory $state -ServiceName $serviceName
+    Get-ACMEServiceDirectory -State $state -ServiceName $serviceName
 
     # Get the first anti-replay nonce
-    New-ACMENonce $state
+    New-ACMENonce -State $state
 
     # Create an account key. The state will make sure it's stored.
-    New-ACMEAccountKey $state
+    New-ACMEAccountKey -State $state
 
     # Register the account key with the acme service. The account key will automatically be read from the state
-    New-ACMEAccount $state -EmailAddresses $ContactEmails -AcceptTOS
+    New-ACMEAccount -State $state -EmailAddresses $ContactEmails -AcceptTOS
 
     return $state
 }
@@ -167,14 +171,14 @@ function Get-SubDomainFromHostname {
         $subDomain += "{0}." -f $splitDomainParts[$i]
     }
     return $subDomain.SubString(0,$subDomain.Length-1)
-}    
+}
 
 function Add-TxtRecordToDns {
     Param (
         [Parameter(Mandatory=$True)]
         [string] $ResourceGroupName,
         [Parameter(Mandatory=$True)]
-        [string] $DnsZoneName,           
+        [string] $DnsZoneName,
         [Parameter(Mandatory=$True)]
         [string] $TxtName,
         [Parameter(Mandatory=$True)]
@@ -191,7 +195,7 @@ function Add-TxtRecordToDns {
                         -Ttl 10 `
                         -DnsRecords (New-AzDnsRecordConfig -Value $TxtValue) `
                         -Confirm:$False `
-                        -Overwrite                        
+                        -Overwrite
 }
 
 function Remove-TxtRecordToDns {
@@ -199,7 +203,7 @@ function Remove-TxtRecordToDns {
         [Parameter(Mandatory=$True)]
         [string] $ResourceGroupName,
         [Parameter(Mandatory=$True)]
-        [string] $DnsZoneName,           
+        [string] $DnsZoneName,
         [Parameter(Mandatory=$True)]
         [string] $TxtName,
         [switch] $IsWildcard
@@ -218,35 +222,11 @@ function Remove-TxtRecordToDns {
 try {
         # Ensures that any credentials apply only to the execution of this runbook
         Disable-AzContextAutosave -Scope Process | Out-Null
-        
-        # Connect to Azure with RunAs account
-        $servicePrincipalConnection = Get-AutomationConnection -Name AzureRunAsConnection
 
-        $logonAttempt = 0
-        $logonResult = $False
-        
-        while(!($connectionResult) -and ($logonAttempt -le 10)) {
-            $LogonAttempt++
-            # Logging in to Azure...
-            Write-Output "Connecting to Azure..."
-            $connectionResult = Connect-AzAccount `
-                                -ServicePrincipal `
-                                -TenantId $servicePrincipalConnection.TenantId `
-                                -ApplicationId $servicePrincipalConnection.ApplicationId `
-                                -CertificateThumbprint $servicePrincipalConnection.CertificateThumbprint
-        
-            if ($connectionResult) {
-                $logonResult = $true
-            }
-            Start-Sleep -Seconds 30
-        }    
-
-        if ($logonResult -eq $false) {
-            Write-Error -Message "Unable to sign in using the automation service principal account after 10 attempts"
-            return
-        }
-
+        # Connect to Azure with system-assigned managed identity
+        $AzureContext = (Connect-AzAccount -Identity).context
         Write-Output "Connected to Azure"
+        Set-AzContext -SubscriptionId $SubscriptionContextId -DefaultProfile $AzureContext
 
         $mainDir = Join-Path $env:TEMP "LetsEncrypt"
         if ($Test) {
@@ -286,28 +266,28 @@ try {
         if ($isNew) {
             Write-Output "Directory is empty. Adding a new account"
             $state = New-AccountProvisioning -StateDir $stateDir -ContactEmails $ContactEmails -Test:$Test
-            
+
             Write-Output "Saving the state directory to storage"
             Add-DirectoryToAzureStorage -Path $mainDir `
                                         -StorageAccountName $StorageAccountName `
                                         -StorageAccountKey $storageAccountKey `
                                         -ContainerName $StorageContainerName
         }
-        else { 
+        else {
             # Load an state object to have service directory and account keys available
             $state = Get-ACMEState -Path $stateDir
         }
 
         # It might be neccessary to acquire a new nonce, so we'll just do it for the sake.
         Write-Output "Acquring new nonce"
-        New-ACMENonce $state
+        New-ACMENonce -State $state
 
         # Create the identifier for the DNS name
         $identifier = New-ACMEIdentifier $DnsName
 
         # Create the order object at the ACME service.
         Write-Output "Creating a new order"
-        $order = New-ACMEOrder $state -Identifiers $identifier
+        $order = New-ACMEOrder -State $state -Identifiers $identifier
 
         # Fetch the authorizations for that order
         Write-Output "Fetching the authorizations for the order"
@@ -315,7 +295,7 @@ try {
 
         # Select a challenge to fullfill
         Write-Output "Getting the challenge"
-        $challenge = Get-ACMEChallenge $state $authZ "dns-01"
+        $challenge = Get-ACMEChallenge -State $state -Authorization $authZ -Type "dns-01"
 
         # Inspect the challenge data
         Write-Output "Dumping the challenge data"
@@ -338,13 +318,13 @@ try {
 
         # Signal the ACME server that the challenge is ready
         Write-Output "Signaling the challenge as ready"
-        $challenge | Complete-ACMEChallenge $state
+        $challenge | Complete-ACMEChallenge -State $state
 
         # Wait a little bit and update the order, until we see the states
         while($order.Status -notin ("ready","invalid")) {
             Write-Output "Order is not ready... waiting 10 seconds"
             Start-Sleep -Seconds 10;
-            $order | Update-ACMEOrder $state -PassThru
+            $order | Update-ACMEOrder -State $state -PassThru
         }
 
         if ($order.Status -eq "invalid") {
@@ -364,13 +344,13 @@ try {
 
         # Complete the order - this will issue a certificate singing request
         Write-Output "Completing the order"
-        Complete-ACMEOrder $state -Order $order -CertificateKey $certKey;
+        Complete-ACMEOrder -State $state -Order $order -CertificateKey $certKey;
 
         # Now we wait until the ACME service provides the certificate url
         while(-not $order.CertificateUrl) {
             Write-Output "Certificate url is not ready... waiting 15 seconds"
             Start-Sleep -Seconds 15
-            $order | Update-Order $state -PassThru
+            $order | Update-Order -State $state -PassThru
         }
 
         # As soon as the url shows up we can create the PFX
