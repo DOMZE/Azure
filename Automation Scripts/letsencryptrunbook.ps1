@@ -241,7 +241,7 @@ try {
             $keyVaultCertificateName += "-test"
         }
 
-        $keyVaultSecretValue = (Get-AzKeyVaultSecret -VaultName $KeyVaultName -Name $KeyVaultCertificateSecretName).SecretValueText
+        $keyVaultSecretValue = Get-AzKeyVaultSecret -VaultName $KeyVaultName -Name $KeyVaultCertificateSecretName -AsPlainText
         $certificatePassword = ConvertTo-SecureString $keyVaultSecretValue -AsPlainText -Force
 
         $storageAccountKey = (Get-AzStorageAccountKey -ResourceGroupName $ResourceGroupName -Name $StorageAccountName | Where-Object { $_.KeyName -eq "key1" } | Select-Object Value).Value
