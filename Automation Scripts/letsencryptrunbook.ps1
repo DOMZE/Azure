@@ -241,7 +241,7 @@ try {
             $keyVaultCertificateName += "-test"
         }
 
-        $keyVaultSecretValue = (Get-AzKeyVaultSecret -VaultName $KeyVaultName -Name $KeyVaultCertificateSecretName).SecretValueText
+        $keyVaultSecretValue = Get-AzKeyVaultSecret -VaultName $KeyVaultName -Name $KeyVaultCertificateSecretName -AsPlainText
         $certificatePassword = ConvertTo-SecureString $keyVaultSecretValue -AsPlainText -Force
 
         $storageAccountKey = (Get-AzStorageAccountKey -ResourceGroupName $ResourceGroupName -Name $StorageAccountName | Where-Object { $_.KeyName -eq "key1" } | Select-Object Value).Value
@@ -310,21 +310,33 @@ try {
         $isWildcard = $DnsName.StartsWith("*.")
 
         Write-Output "Adding the txt record"
+        # Remove the TXT record in case it is already there
+        Remove-TxtRecordToDns -ResourceGroupName $ResourceGroupName `
+                            -DnsZoneName $dnsZoneName `
+                            -TxtName $challengeTxtRecordName `
+                            -IsWildcard:$isWildcard
+
         Add-TxtRecordToDns -ResourceGroupName $ResourceGroupName `
                             -DnsZoneName $dnsZoneName `
                             -TxtName $challengeTxtRecordName `
                             -TxtValue $challengeToken `
                             -IsWildcard:$isWildcard
 
+        # Wait 5 seconds for the DNS to set
+        Start-Sleep -Seconds 5
+
         # Signal the ACME server that the challenge is ready
         Write-Output "Signaling the challenge as ready"
         $challenge | Complete-ACMEChallenge -State $state
 
         # Wait a little bit and update the order, until we see the states
-        while($order.Status -notin ("ready","invalid")) {
-            Write-Output "Order is not ready... waiting 10 seconds"
-            Start-Sleep -Seconds 10;
+        $tries = 1
+        while($order.Status -notin ("ready","invalid") -and $tries -le 3) {
+            $waitTimeInSeconds = 10 * $tries
+            Write-Output "Order is not ready... waiting $waitTimeInSeconds seconds"
+            Start-Sleep -Seconds $waitTimeInSeconds
             $order | Update-ACMEOrder -State $state -PassThru
+            $tries = $tries + 1
         }
 
         if ($order.Status -eq "invalid") {
@@ -385,4 +397,13 @@ try {
 catch {
     $ErrorMessage = $_.Exception.Message
     Write-Error "An error occurred: $ErrorMessage"
+
+    if (Test-Path variable:dnsZoneName -and Test-Path variable:challengeTxtRecordName -and Test-Path variable:isWildcard) {
+        # Remove the TXT Record
+        Write-Output "Removing the TXT record"
+        Remove-TxtRecordToDns -ResourceGroupName $ResourceGroupName `
+                            -DnsZoneName $dnsZoneName `
+                            -TxtName $challengeTxtRecordName `
+                            -IsWildcard:$isWildcard
+    }
 }
