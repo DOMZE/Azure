@@ -205,8 +205,7 @@ function Remove-TxtRecordToDns {
         [Parameter(Mandatory=$True)]
         [string] $DnsZoneName,
         [Parameter(Mandatory=$True)]
-        [string] $TxtName,
-        [switch] $IsWildcard
+        [string] $TxtName
     )
 
     $subDomain = Get-SubDomainFromHostname -Hostname $TxtName
@@ -214,9 +213,12 @@ function Remove-TxtRecordToDns {
     $recordSet = Get-AzDnsRecordSet -ResourceGroupName $ResourceGroupName `
                                     -ZoneName $DnsZoneName `
                                     -Name $subDomain `
-                                    -RecordType TXT
+                                    -RecordType TXT `
+                                    -ErrorAction SilentlyContinue
 
-    Remove-AzDnsRecordSet -RecordSet $recordSet -Confirm:$False -Overwrite
+    if ($null -ne $recordSet) {
+        Remove-AzDnsRecordSet -RecordSet $recordSet -Confirm:$False -Overwrite
+    }
 }
 
 try {
@@ -313,8 +315,7 @@ try {
         # Remove the TXT record in case it is already there
         Remove-TxtRecordToDns -ResourceGroupName $ResourceGroupName `
                             -DnsZoneName $dnsZoneName `
-                            -TxtName $challengeTxtRecordName `
-                            -IsWildcard:$isWildcard
+                            -TxtName $challengeTxtRecordName
 
         Add-TxtRecordToDns -ResourceGroupName $ResourceGroupName `
                             -DnsZoneName $dnsZoneName `
@@ -374,8 +375,7 @@ try {
         Write-Output "Removing the TXT record"
         Remove-TxtRecordToDns -ResourceGroupName $ResourceGroupName `
                             -DnsZoneName $dnsZoneName `
-                            -TxtName $challengeTxtRecordName `
-                            -IsWildcard:$isWildcard
+                            -TxtName $challengeTxtRecordName
 
         # Save the certificate into the keyvault
         Write-Output "Adding the certificate to the key vault"
@@ -403,7 +403,6 @@ catch {
         Write-Output "Removing the TXT record"
         Remove-TxtRecordToDns -ResourceGroupName $ResourceGroupName `
                             -DnsZoneName $dnsZoneName `
-                            -TxtName $challengeTxtRecordName `
-                            -IsWildcard:$isWildcard
+                            -TxtName $challengeTxtRecordName
     }
 }
